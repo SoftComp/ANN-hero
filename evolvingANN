@@ -1,0 +1,222 @@
+%% DESCRIPTION
+%=========================================================================
+   % Title      : Stock Price Prediction using Evolving Neural Network
+   % Course     : Soft Computing [CIG4B3]
+   % Lecturer   : Mahmud Dwi Sulistyo [MDS]
+   % Group Name : CrashOverride
+   % Member     :
+                 % Fuad Ikhlasul Amal
+                 % Varian Vianandha
+                 % Akhmad Faizal Akbar
+%=========================================================================
+
+%% START
+
+clc; 
+clear all;
+close all;
+
+%% Data acquisition
+
+type = 'monthly';
+nTrain = 100;
+
+data = csvread(strcat(type, '.csv'), 1, 1);
+
+% Acquire only the highest stock price from OLHC data
+train = data(1:nTrain, 3);
+
+period = 5;
+im = zeros(nTrain-period, period+1);
+
+%% Create input & target matrix for used in ANN
+
+for ii=1 : nTrain-period
+    cols = train(ii:ii+period);
+    im(ii, :) = cols';
+end
+
+xd = im(:, 1:period);
+td = im(:, period+1);
+
+minmaxval = minmax(td');
+minval = minmaxval(1);
+maxval = minmaxval(2);
+
+%% Data normalization for ANN processing
+
+x = ((xd - minval) / (maxval - minval) * 0.8) + 0.1;
+t = ((td - minval) / (maxval - minval) * 0.8) + 0.1;
+
+%% GA parameters
+
+npop = 100;
+maxGen = 100;
+pc = 0.9;
+pm = 0.1;
+smallnum = 0.01;
+th = 1/smallnum;
+nH = 2;
+nIn = size(x, 2);
+nOut = size(t, 2);
+
+%% Initialize population
+
+nGen = (nIn * nH) + (nH * nOut) + nH + nOut;    % Number of gens in a chromosome 
+                                                % with composition:
+                                                % number of weights from
+                                                % input layer to hidden
+                                                % layer, number of weights
+                                                % from hidden to output
+                                                % layer, and biases for
+                                                % each perceptron in every
+                                                % layers
+pop = -1 + 2.* rand(npop, nGen);
+
+fitness = zeros(npop, 1);                       % Fitness value of each chromosome
+P = zeros(npop, 1);                             % Probability of each chromosome
+C = zeros(npop, 1);                             % Cumulative probability each chromosome
+
+%% Run GA
+
+bgraph = 1.1 * th;
+
+mainfig = figure;
+hold on;
+title('Stock Price Prediction using Evolving ANN');
+set(mainfig, 'position', [50 50 600 400]);
+set(mainfig, 'DoubleBuffer', 'on');
+axis([1 maxGen 0 bgraph]);
+bestgraph = plot(1:maxGen, zeros(1, maxGen));
+text1 = text(0.5*maxGen, 0.20*bgraph, sprintf('Best Fitness: %15.11f', 0.0));
+text2 = text(0.5*maxGen, 0.15*bgraph, sprintf('Population size: %3.0f', 0.0));
+text3 = text(0.5*maxGen, 0.10*bgraph, sprintf('Generation: %3.0f', 0.0));
+text4 = text(0.5*maxGen, 0.05*bgraph, sprintf('MSE: %3.4f', 0.0));
+xlabel('Generation');
+ylabel('Best fitness');
+hold off
+drawnow;
+
+for ii=1 : maxGen
+   
+   for jj=1 : npop
+       mse = ann(x, t, nH, pop(jj, :));
+       fitness(jj) = 1 / (smallnum + mse);
+   end
+   
+   popTemp = pop;
+   
+   bestfitness = max(fitness);
+   idxbest = find(fitness == bestfitness);
+   bestChrom = pop(idxbest(1), :);
+   worstfitness = min(fitness);
+   
+   plotvector = get(bestgraph,'YData');
+   plotvector(ii) = bestfitness;
+   set(bestgraph,'YData',plotvector);
+   set(text1,'String',sprintf('Best fitness: %15.11f', bestfitness));
+   set(text2,'String',sprintf('Population size: %3.0f', npop));
+   set(text3,'String',sprintf('Generation: %3.0f', ii));
+   set(text4,'String',sprintf('MSE: %3.4f', 1/bestfitness-smallnum));
+   drawnow;
+   
+   if bestfitness >= th
+       break;
+   end
+   
+   sumfitness = sum(fitness);
+   P = fitness / sumfitness;
+   
+   % Select new population using roulette wheel
+   
+   C = cumsum(P);
+   
+   for kk=1 : npop
+       R = rand;
+       idx = find(C < R);
+       if(isempty(idx)) 
+           idxnew = 1;
+       else
+           idxnew = idx(length(idx)) + 1; 
+       end
+       popTemp(kk, :) = popTemp(idxnew, :);
+   end
+   
+   % Best Chromosome Elitism
+   
+   popTemp(1, :) = bestChrom;
+   startidx = 2;
+   if mod(npop, 2) == 0
+       popTemp(2, :) = bestChrom;
+       startidx = 3;
+   end
+   
+   % Do crossover using whole arithmetic method with alpha as a multiplier factor
+   % Select chromosomes for parents based on crossover probability (pc)
+   
+   parents = [];
+   kk = 1;
+   idxparent = 1;
+   
+   while kk <= npop
+       if rand < pc
+           parents(idxparent, :) = popTemp(kk, :);
+           idxparent = idxparent + 1;
+       end
+       kk = kk + 1;
+   end
+   
+   % Select the mating parents (a pair of chromosome) in a population
+   
+   nParent = size(parents, 1);
+   
+   if(mod(nParent, 2) ~= 0)
+       parents(nParent+1, :) = parents(1, :);
+   end
+   
+   nParent = size(parents, 1);
+   idx = randperm(nParent);
+   alpha = 0.8;
+   offsprings = zeros(nParent, nGen);
+   
+   for kk=1 : 2 : nParent-1
+       parent1 = parents(idx(kk), :);
+       parent2 = parents(idx(kk+1), :);
+       offsprings(kk, :) = (alpha .* parent1) + (1 - alpha) .* parent2;
+       offsprings(kk+1, :) = (alpha .* parent1) + (1 - alpha) .* parent2;
+   end
+   
+   popTemp((npop-nParent+1):npop,:) = offsprings;
+   
+   % Mutation of chromosomes in a population using creep mutation
+   
+   for kk=startidx : npop
+       for g=1 : nGen
+           if(rand < pm)
+               alpha = (randn/1000);
+               if alpha + popTemp(kk, g) > 1
+                   popTemp(kk, g) = 1;
+               elseif alpha + popTemp(kk, g) < 0
+                   popTemp(kk, g) = 0;
+               end
+           end
+       end
+   end
+   
+   % Steady State Replacement Rule
+   
+   mixedPop = cat(1, pop, popTemp);
+   newfitness = [];
+   
+   for jj=1 : npop*2
+       mse = ann(x, t, nH, mixedPop(jj, :));
+       newfitness(jj) = 1 / (smallnum + mse);
+   end
+   
+   [newbestfitness idx] = sort(newfitness);
+   
+   for jj=1 : npop
+       pop(jj, :) = mixedPop(idx(npop+jj), :);
+   end
+   
+end
