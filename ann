@@ -1,0 +1,30 @@
+function MSE = ann(x, t, nH, chrom)
+
+nOut = size(t, 2);
+[nRow period] = size(x);
+nData = nRow - period;
+
+MSE = 0;
+for ii=1 : nRow-period
+    u1 = zeros(1, nH);
+    z = zeros(1, nH);
+    for jj=1 : nH
+        temp = x(ii).* chrom((jj-1)*period+1 : period*jj);
+        u1(jj) = sum(temp) + chrom((nH * period) + jj);
+        z(jj) = 1 / (1 + exp(-u1(jj)));
+    end
+
+    u2 = zeros(1, nOut);
+    y = zeros(1, nOut);
+    for jj=1 : nOut
+        idxa = ((jj-1) * nH+1) + (nH * period + nH);
+        idxb = idxa + nH - 1;
+        temp = z(jj).* chrom(idxa : idxb);
+        u2(jj) = sum(temp) + chrom(idxb+jj);
+        y(jj) = 1 / (1 + exp(-u2(jj)));
+    end
+    E = t(ii, :) - y(:);
+    MSE = MSE + mse(E);
+end
+MSE = MSE / nData;
+end
